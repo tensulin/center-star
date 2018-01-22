@@ -1,18 +1,47 @@
 import argparse
+import os.path
 
-UNIT_COST_MATRIX = [[0, 1, 1, 1], [1, 0, 1, 1], [1, 1, 0, 1], [1, 1, 1, 0]]
-BASE_LIST = ["A", "C", "G", "T"]
-string = "sss"
+class DNASequence(object):
+    def __init__(self, title, sequence):
+        self.title = title
+        self.sequence = sequence
+
+
+
+UNIT_COST_MATRIX = [[0, 1, 1, 1, 1], [1, 0, 1, 1, 1], [1, 1, 0, 1, 1], [1, 1, 1, 0, 1], [1, 1, 1, 1]]
+BASE_LIST = ["A", "C", "G", "T", "-"]
+
 
 def main():
     parser = argparse.ArgumentParser(description='Calculate multiple alignment using the center star approximation')
-    parser.add_argument('--input', metavar='file', type=str,
-                        help='Input fasta file')
-    parser.add_argument('--dist',metavar='file', action='store_const',
-                        const=sum, default="unit costs",
-                        help='File containing the distance matrix. If left out unit costs will be used.')
-
+    parser.add_argument('--input', metavar='file_name', type=str,
+                        help='Input fasta file. Sequences should only contain DNA bases (A, C, G, T).')
+    parser.add_argument('--dist', metavar='file_name',  default="unit costs",
+                        help='File containing the cost matrix. If left out unit costs will be used. '
+                             'For information about the format please read the man.')
+    parser.add_argument('--indel', metavar='indel_cost', default="unit_costs",
+                        help='Int to define the indel costs. If left out unit costs will be used.')
+    parser.add_argument('--output', metavar='file_name', default="print_on_terminal",
+                        help='Filename where the output will be written. If left out it will print in terminal')
     args = parser.parse_args()
+
+    os.path.isfile(name)
+
+
+def fasta_parser(filename):
+    sep = ""
+    dna_sequences_list = []
+    dna_seq = DNASequence("", "")
+    with open(filename) as f:
+        for line in f:
+            if line.startswith(">"):
+                if dna_seq.sequence != "":
+                    dna_sequences_list.append(dna_seq)
+                dna_seq.title = (sep + line.strip() + ' ')
+                dna_seq.sequence = ""
+            else:
+                dna_seq.sequence += line.strip()
+    return dna_sequences_list
 
 
 # calculates the edit distance for two DNA sequences and a
@@ -55,35 +84,99 @@ def get_score_alignment(alignmentColumn, base, mat):
 
 
 def calculate_alignment(center_star, sequences, mat):
-    multiple_alignment = [c for c in center_star]
+    multiple_alignment = list(center_star)
     for i in range(len(sequences)):
-        append_next_sequence(multiple_alignment, sequences[i], mat)
+        multiple_alignment = append_next_sequence(multiple_alignment, sequences[i], mat)
     return multiple_alignment
 
 
 def append_next_sequence(multiple_alignment, seq, mat):
-    new_multiple_alignment = [multiple_alignment]
-    while True:
-        coordinates = get_next_iteration_hirschberg(multiple_alignment, seq, mat)
+    new_alignment = [(multiple_alignment, seq)]
+    index = 0
+    number_rows = len(multiple_alignment[0])
+    while index < max(len(multiple_alignment), len(seq)):
+        if isinstance(new_alignment[index], tuple):
+            alignment = new_alignment[index][0]
+            sequence = new_alignment[index][1]
+            row1 = [i for i in range(len(alignment) + 1)]
+            row2 = [len(alignment) + 1]
+            hirschberg_row_one = get_hirschberg(row1, row2, alignment, sequence, mat)
+            row1 = [i for i in range(len(alignment) + 1)]
+            edit_dist = get_edit_distance_multiple(row1, row2, alignment, sequence, mat)
+            row1 = [i for i in range(len(alignment) + 1)]
+            row1.reverse()
+            alignment.reverse()
+            sequence.reverse()
+            hirschberg_row_two = get_hirschberg(row1, row2, alignment, sequence, mat)
+            alignment.reverse()
+            sequence.reverse()
+            i_coordinate = 0
+            j_coordinate = (int((len(sequence) + 1) / 2) + ((len(sequence) + 1) % 2)) - 1
+            for i in range(len(hirschberg_row_one)):
+                if (hirschberg_row_one[i] + hirschberg_row_two[i]) - edit_dist == 0:
+                    i_coordinate = i - 1
+                    break
+            if len(sequence) == 1 and len(alignment) == 1:
+                alignment[0].append(sequence[0])
+                new_alignment.insert(index, alignment[0])
+                index += 1
+            if len(sequence) == 0 and len(alignment) == 1:
+                alignment[0].append('-')
+                new_alignment.insert(index, alignment[0])
+                index += 1
+            if len(sequence) == 1 and len(alignment) == 0:
+                new_column = list(number_rows * '-')
+                new_column.append(sequence[0])
+                new_alignment.insert(index, new_column)
+                index += 1
+            del new_alignment[index]
+            new_alignment.insert(index, ([i[:i_coordinate] for i in alignment], sequence[:j_coordinate]))
+            new_alignment.insert(index + 1, ([i[i_coordinate:] for i in alignment], sequence[j_coordinate:]))
+    return new_alignment
+
+def get_first_coordinate(coordinates_list):
+    coordinate = 0
+    for i in coordinates_list:
+        if i != 0:
+            coordinate = i
+        else:
+            return coordinate
 
 
-def get_next_iteration_hirschberg(alignment, seq, mat):
+def get_second_coordinate(coordinates_list):
+    last_i = -1
+    for i in coordinates_list:
+        if last_i == 0 and i != 0:
+            return i
+        last_i = i
+
+
+def get_next_iteration_hirschberg(alignment, sequence, mat):
     row1 = [i for i in range(len(alignment) + 1)]
     row2 = [len(alignment) + 1]
-    hirschberg_row_one = get_hirschberg(row1, row2, alignment, seq, mat)
+    hirschberg_row_one = get_hirschberg(row1, row2, alignment, sequence, mat)
     row1 = [i for i in range(len(alignment) + 1)]
-    row2 = [len(alignment) + 1]
-    hirschberg_row_two = get_hirschberg(row1.reverse(), row2, alignment.reverse(), seq.reverse(), mat)
+    edit_dist = get_edit_distance_multiple(row1, row2, alignment, sequence, mat)
     row1 = [i for i in range(len(alignment) + 1)]
-    row2 = [len(alignment) + 1]
-    edit_dist = get_edit_distance_multiple(row1, row2, alignment, seq, mat)
+    row1.reverse()
+    alignment.reverse()
+    sequence.reverse()
+    hirschberg_row_two = get_hirschberg(row1, row2, alignment, sequence, mat)
+    alignment.reverse()
+    sequence.reverse()
     i_coordinate = 0
-    j_coordinate = (len(seq)+1)/2 + ((len(seq) + 1) % 2)
+    j_coordinate = int((len(sequence) + 1) / 2) + ((len(sequence) + 1) % 2)
     for i in range(len(hirschberg_row_one)):
         if (hirschberg_row_one[i] + hirschberg_row_two[i]) - edit_dist == 0:
             i_coordinate = i
             break
-    return i_coordinate, j_coordinate
+    if len(sequence) == 1 and len(alignment) == 1:
+        return alignment[0], sequence[0]
+    if len(sequence) == 0 and len(alignment) == 1:
+        return alignment[0], '-'
+    if len(sequence) == 1 and len(alignment) == 0:
+        return sequence[0], '-'
+    return get_next_iteration_hirschberg([i[:i_coordinate] for i in alignment], sequence[:j_coordinate]), get_next_iteration_hirschberg([i[i_coordinate:] for i in alignment], sequence[j_coordinate:])
 
 
 def get_edit_distance_multiple(row1, row2, alignment, seq, mat):
